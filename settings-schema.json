@@ -1,0 +1,34 @@
+{
+  "section-general": {
+    "type": "section",
+    "description": "General Settings"
+  },
+  "enable-top-snap-bar": {
+    "type": "switch",
+    "default": true,
+    "description": "Enable Top Snap Bar",
+    "tooltip": "Show the Snap Layouts bar when dragging a window towards the top of any monitor."
+  },
+  "enable-shortcut": {
+    "type": "switch",
+    "default": true,
+    "description": "Enable Super+Z Shortcut",
+    "tooltip": "Press Super+Z to open Snap Layouts for the currently active window."
+  },
+  "trigger-distance": {
+    "type": "spinbutton",
+    "default": 15,
+    "min": 5,
+    "max": 50,
+    "step": 1,
+    "units": "px",
+    "description": "Top Edge Trigger Distance",
+    "tooltip": "Distance in pixels from the top edge required to trigger the Top Snap Bar."
+  },
+  "snap-animation": {
+    "type": "switch",
+    "default": true,
+    "description": "Smooth Animations",
+    "tooltip": "Enable fluid animations for the Snap Bar and Ghost Preview."
+  }
+}

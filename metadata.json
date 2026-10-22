@@ -1,0 +1,9 @@
+{
+  "uuid": "snap-layouts@pedro",
+  "name": "Snap Layouts",
+  "description": "Windows 11 Snap Layouts & Top Snap Bar for Cinnamon Desktop",
+  "version": "1.0.0",
+  "cinnamon-version": ["5.8", "6.0", "6.2", "6.4", "6.6"],
+  "author": "pedro",
+  "url": "https://github.com/pedro/cinnamon-snap-layouts"
+}

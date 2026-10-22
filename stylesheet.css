@@ -1,0 +1,68 @@
+/* Snap Layouts - Windows 11 Acrylic Style for Cinnamon */
+
+/* Top Snap Bar Container (Drops from top edge) */
+.snap-bar-container {
+    background-color: rgba(28, 28, 28, 0.88);
+    border-left: 1px solid rgba(255, 255, 255, 0.14);
+    border-right: 1px solid rgba(255, 255, 255, 0.14);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+    border-top: none;
+    border-radius: 0px 0px 14px 14px;
+    padding: 10px 16px;
+    box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+/* Flyout Container (Triggered by Super+Z) */
+.snap-flyout-container {
+    background-color: rgba(30, 30, 30, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    padding: 12px 16px;
+    box-shadow: 0px 12px 36px rgba(0, 0, 0, 0.6);
+}
+
+.snap-flyout-header {
+    font-size: 11px;
+    font-weight: bold;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+/* Individual Preset Card */
+.snap-card {
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 8px;
+    margin: 0px 5px;
+    padding: 4px;
+    transition-duration: 150ms;
+}
+
+.snap-card:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* Zone Cell inside a card */
+.snap-zone-cell {
+    background-color: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    transition-duration: 120ms;
+}
+
+/* Highlighted Zone Cell (Active hover / selected) */
+.snap-zone-cell-active,
+.snap-zone-cell:hover {
+    background-color: #0078d4;
+    border: 1px solid #60cdff;
+    box-shadow: 0px 0px 8px rgba(0, 120, 212, 0.5);
+}
+
+/* Ghost Preview Box on the Desktop */
+.snap-ghost-preview {
+    background-color: rgba(0, 120, 212, 0.24);
+    border: 2px solid #0078d4;
+    border-radius: 10px;
+}
