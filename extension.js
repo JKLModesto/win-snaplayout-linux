@@ -15,6 +15,8 @@ const UUID = "snap-layouts@pedro";
 const CARD_WIDTH = 76;
 const CARD_HEIGHT = 52;
 const ZONE_GAP = 3;
+const PRE_BAR_WIDTH = 160;
+const PRE_BAR_HEIGHT = 10;
 
 // Layout Presets (Windows 11 Presets)
 const PRESETS = [
@@ -96,6 +98,10 @@ class SnapLayoutsExtension {
         this._draggedWindow = null;
         this._activeMonitor = null;
 
+        // UI State: 'IDLE' | 'PEEK' | 'EXPANDED'
+        this._barState = 'IDLE';
+
+        this._preBar = null;
         this._snapBar = null;
         this._barZones = []; // [{ actor, rect, preset }]
         this._activeZone = null;
@@ -151,9 +157,11 @@ class SnapLayoutsExtension {
         this._removeShortcut();
         this._stopTrackerTimer();
         this._destroySnapBar();
+        this._destroyPreBar();
         this._destroyGhostPreview();
         this._destroyFlyout();
 
+        this._barState = 'IDLE';
         this._isDragging = false;
         this._draggedWindow = null;
         this._activeMonitor = null;
@@ -211,7 +219,7 @@ class SnapLayoutsExtension {
         return { window, op };
     }
 
-    // --- Drag and Drop (Top Snap Bar) ---
+    // --- Drag and Drop (Top Snap Bar & Pre-Bar) ---
 
     _onGrabBegin(args) {
         if (!this.enableTopSnapBar) return;
@@ -227,11 +235,20 @@ class SnapLayoutsExtension {
             isMove = ((op & Meta.GrabOp.MOVING) !== 0);
         }
 
-        if (isMove && window) {
+        // Only handle normal snappable windows
+        if (isMove && window && (!window.get_window_type || window.get_window_type() === Meta.WindowType.NORMAL)) {
             this._isDragging = true;
             this._draggedWindow = window;
             this._activeZone = null;
             this._activeTargetRect = null;
+            this._barState = 'PEEK';
+
+            let [x, y] = global.get_pointer();
+            let monitor = this._getMonitorForCoords(x, y);
+            let workArea = this._getWorkArea(monitor);
+
+            // Show subtle pre-bar hint at top center
+            this._showPreBar(monitor, workArea);
             this._startTrackerTimer();
         }
     }
@@ -245,13 +262,15 @@ class SnapLayoutsExtension {
         let targetRect = this._activeTargetRect;
         let window = this._draggedWindow;
 
-        // Clean up UI
+        // Clean up UI smoothly
         this._destroyGhostPreview();
         this._hideSnapBar();
+        this._hidePreBar();
+        this._barState = 'IDLE';
 
-        // Snap window cleanly after Muffin grab cleanup
+        // Snap window cleanly after Muffin grab cleanup completes
         if (targetRect && window) {
-            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 40, () => {
                 this._applyWindowGeometry(window, targetRect);
                 return GLib.SOURCE_REMOVE;
             });
@@ -283,55 +302,63 @@ class SnapLayoutsExtension {
     }
 
     _onDragTick() {
+        if (!this._isDragging) return;
+
         let [x, y] = global.get_pointer();
         let monitor = this._getMonitorForCoords(x, y);
         if (!monitor) return;
 
         let workArea = this._getWorkArea(monitor);
 
-        // Check Top Edge Trigger
-        let isAtTopEdge = (y <= workArea.y + this.triggerDistance || y <= monitor.y + this.triggerDistance);
+        // Monitor switch during drag: re-anchor to new monitor
+        if (this._activeMonitor && this._activeMonitor.index !== monitor.index) {
+            this._destroySnapBar();
+            this._hidePreBar(true);
+            this._destroyGhostPreview();
+            this._activeMonitor = monitor;
+            this._barState = 'PEEK';
+            this._showPreBar(monitor, workArea);
+            return;
+        }
 
-        if (!this._snapBar) {
-            if (isAtTopEdge) {
-                this._showSnapBar(monitor, workArea);
-            }
-        } else {
-            // Monitor switched during drag
-            if (this._activeMonitor && this._activeMonitor.index !== monitor.index) {
-                this._destroySnapBar();
-                this._destroyGhostPreview();
-                if (isAtTopEdge) {
-                    this._showSnapBar(monitor, workArea);
-                }
-                return;
-            }
+        let centerX = monitor.x + Math.round(monitor.width / 2);
+        let distY = y - workArea.y;
+        let dx = Math.abs(x - centerX);
 
-            // Hit test against zones inside the Snap Bar
+        if (this._barState === 'PEEK') {
+            // Expand to full snap bar when:
+            // 1) Cursor approaches top-center pre-bar (distY <= 90 && dx <= 380)
+            // 2) OR user holds window at the top edge (distY <= 25 or y <= monitor.y + 25) anywhere
+            let shouldExpand = (distY <= 90 && dx <= 380) || (distY <= 25 || y <= monitor.y + 25);
+
+            if (shouldExpand) {
+                this._expandSnapBar(monitor, workArea);
+            }
+        } else if (this._barState === 'EXPANDED' && this._snapBar) {
+            let barHeight = this._snapBar.height || 75;
             let hoveredZoneInfo = this._hitTestBarZones(x, y);
 
             if (hoveredZoneInfo) {
                 if (this._activeZone !== hoveredZoneInfo) {
-                    // Activate newly hovered cell
                     if (this._activeZone && this._activeZone.actor) {
                         this._activeZone.actor.remove_style_class_name('snap-zone-cell-active');
                     }
                     this._activeZone = hoveredZoneInfo;
                     this._activeZone.actor.add_style_class_name('snap-zone-cell-active');
 
-                    // Compute target window rectangle
                     let z = hoveredZoneInfo.rect;
                     this._activeTargetRect = {
                         x: Math.round(workArea.x + z.x * workArea.width),
                         y: Math.round(workArea.y + z.y * workArea.height),
                         width: Math.round(workArea.width * z.w),
-                        height: Math.round(workArea.height * z.h)
+                        height: Math.round(workArea.height * z.h),
+                        zone: z
                     };
 
                     this._showGhostPreview(this._activeTargetRect);
                 }
             } else {
-                // Not over any zone
+                // Not over any cell
                 if (this._activeZone) {
                     if (this._activeZone.actor) {
                         this._activeZone.actor.remove_style_class_name('snap-zone-cell-active');
@@ -341,13 +368,16 @@ class SnapLayoutsExtension {
                     this._destroyGhostPreview();
                 }
 
-                // Check dismissal threshold: pointer moved away from the Snap Bar
-                let [bx, by] = this._snapBar.get_transformed_position();
-                let [bw, bh] = this._snapBar.get_transformed_size();
+                // Never collapse if held at the top (distY <= 25 or y <= monitor.y + 25)
+                // or if inside the vertical band of the snap bar!
+                let isHeldAtTop = (distY <= 25 || y <= monitor.y + 25);
+                let isInsideBarBand = (distY >= -10 && distY <= barHeight + 50);
 
-                if (y > by + bh + 80 || x < bx - 100 || x > bx + bw + 100) {
-                    this._hideSnapBar();
-                    this._destroyGhostPreview();
+                if (!isHeldAtTop && !isInsideBarBand) {
+                    // Only collapse when user moves the window clearly down into the workspace
+                    if (distY > barHeight + 70) {
+                        this._collapseSnapBar();
+                    }
                 }
             }
         }
@@ -379,18 +409,93 @@ class SnapLayoutsExtension {
         return null;
     }
 
-    _showSnapBar(monitor, workArea) {
-        this._destroySnapBar();
+    // --- Pre-Bar (Top Pill Hint) ---
+
+    _showPreBar(monitor, workArea) {
+        if (this._preBar) return;
         this._activeMonitor = monitor;
 
+        this._preBar = new St.Widget({
+            style_class: 'snap-pre-bar',
+            reactive: false
+        });
+        this._preBar.set_size(PRE_BAR_WIDTH, PRE_BAR_HEIGHT);
+
+        let handle = new St.Widget({
+            style_class: 'snap-pre-bar-handle',
+            reactive: false
+        });
+        let hw = 40;
+        let hh = 3;
+        handle.set_size(hw, hh);
+        handle.set_position(Math.round((PRE_BAR_WIDTH - hw) / 2), Math.round((PRE_BAR_HEIGHT - hh) / 2));
+        this._preBar.add_actor(handle);
+
+        Main.uiGroup.add_actor(this._preBar);
+
+        let posX = monitor.x + Math.round((monitor.width - PRE_BAR_WIDTH) / 2);
+        let targetY = workArea.y;
+
+        this._preBar.x = posX;
+
+        if (this.snapAnimation) {
+            this._preBar.y = targetY - PRE_BAR_HEIGHT;
+            this._preBar.opacity = 0;
+            Tweener.addTween(this._preBar, {
+                y: targetY,
+                opacity: 255,
+                time: 0.18,
+                transition: 'easeOutQuad'
+            });
+        } else {
+            this._preBar.y = targetY;
+            this._preBar.opacity = 255;
+        }
+    }
+
+    _hidePreBar(immediate = false) {
+        if (!this._preBar) return;
+        let p = this._preBar;
+        this._preBar = null;
+        Tweener.removeTweens(p);
+
+        if (!immediate && this.snapAnimation) {
+            Tweener.addTween(p, {
+                opacity: 0,
+                time: 0.12,
+                transition: 'easeInQuad',
+                onComplete: () => {
+                    p.destroy();
+                }
+            });
+        } else {
+            p.destroy();
+        }
+    }
+
+    _destroyPreBar() {
+        if (this._preBar) {
+            Tweener.removeTweens(this._preBar);
+            this._preBar.destroy();
+            this._preBar = null;
+        }
+    }
+
+    // --- Snap Bar (Expanded Layouts) ---
+
+    _expandSnapBar(monitor, workArea) {
+        if (this._snapBar) return;
+        this._barState = 'EXPANDED';
+
+        this._hidePreBar();
+
+        this._activeMonitor = monitor;
         this._snapBar = new St.BoxLayout({
             style_class: 'snap-bar-container',
             reactive: true
         });
-
         this._barZones = [];
 
-        // Build Preset Cards
         for (let preset of PRESETS) {
             let cardWidget = this._createCardWidget(preset, this._barZones, null, null);
             this._snapBar.add_actor(cardWidget);
@@ -398,7 +503,6 @@ class SnapLayoutsExtension {
 
         Main.uiGroup.add_actor(this._snapBar);
 
-        // Position at top center of active monitor
         let barWidth = this._snapBar.get_preferred_width(-1)[1];
         let barHeight = this._snapBar.get_preferred_height(-1)[1];
 
@@ -413,8 +517,8 @@ class SnapLayoutsExtension {
             Tweener.addTween(this._snapBar, {
                 y: targetY,
                 opacity: 255,
-                time: 0.18,
-                transition: 'easeOutQuad'
+                time: 0.22,
+                transition: 'easeOutCubic'
             });
         } else {
             this._snapBar.y = targetY;
@@ -422,19 +526,34 @@ class SnapLayoutsExtension {
         }
     }
 
-    _hideSnapBar() {
+    _collapseSnapBar() {
+        this._hideSnapBar();
+        if (this._isDragging && this._activeMonitor) {
+            this._barState = 'PEEK';
+            let workArea = this._getWorkArea(this._activeMonitor);
+            this._showPreBar(this._activeMonitor, workArea);
+        } else {
+            this._barState = 'IDLE';
+        }
+    }
+
+    _hideSnapBar(immediate = false) {
         if (!this._snapBar) return;
         let bar = this._snapBar;
         this._snapBar = null;
         this._barZones = [];
         this._activeZone = null;
+        this._activeTargetRect = null;
+        this._destroyGhostPreview();
 
-        if (this.snapAnimation) {
+        Tweener.removeTweens(bar);
+
+        if (!immediate && this.snapAnimation) {
             let targetY = bar.y - bar.height;
             Tweener.addTween(bar, {
                 y: targetY,
                 opacity: 0,
-                time: 0.14,
+                time: 0.16,
                 transition: 'easeInQuad',
                 onComplete: () => {
                     bar.destroy();
@@ -453,6 +572,7 @@ class SnapLayoutsExtension {
         }
         this._barZones = [];
         this._activeZone = null;
+        this._activeTargetRect = null;
     }
 
     _createCardWidget(preset, zoneList, onZoneClick, onZoneHover) {
@@ -498,6 +618,7 @@ class SnapLayoutsExtension {
                     onZoneHover(zoneInfo, true);
                     return Clutter.EVENT_PROPAGATE;
                 });
+
                 cell.connect('leave-event', () => {
                     cell.remove_style_class_name('snap-zone-cell-active');
                     onZoneHover(zoneInfo, false);
@@ -565,10 +686,51 @@ class SnapLayoutsExtension {
     _applyWindowGeometry(window, rect) {
         if (!window) return;
         try {
+            // Unmaximize if maximized
             if (window.get_maximized()) {
                 window.unmaximize(Meta.MaximizeFlags.BOTH);
             }
+
+            // Clear tile mode if window was tiled
+            if (window.tile_mode && window.tile_mode !== Meta.TileMode.NONE) {
+                try {
+                    window.unmaximize(Meta.MaximizeFlags.BOTH);
+                } catch (e) {}
+            }
+
+            // 1. Explicit move_frame first to establish the origin
+            window.move_frame(true, rect.x, rect.y);
+
+            // 2. move_resize_frame to adjust window dimensions
             window.move_resize_frame(true, rect.x, rect.y, rect.width, rect.height);
+
+            // 3. Re-assert move_frame
+            // This is required for applications with size increment hints (e.g. gnome-terminal)
+            // which otherwise discard or fail to apply the position coordinates in move_resize_frame
+            window.move_frame(true, rect.x, rect.y);
+
+            // 4. GTK / VTE terminal windows recalculate character rows and columns
+            // asynchronously upon receiving a resize and may emit a ConfigureRequest that
+            // causes Muffin to snap back to the previous drag coordinates.
+            // A quick retry timer guarantees the window remains firmly at target coordinates.
+            let attempts = 0;
+            let checkTimerId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 35, () => {
+                attempts++;
+                try {
+                    if (!window) return GLib.SOURCE_REMOVE;
+                    let frame = window.get_frame_rect();
+                    if (frame.x !== rect.x || frame.y !== rect.y) {
+                        window.move_frame(true, rect.x, rect.y);
+                    }
+                } catch (e) {
+                    return GLib.SOURCE_REMOVE;
+                }
+
+                if (attempts >= 4) {
+                    return GLib.SOURCE_REMOVE;
+                }
+                return GLib.SOURCE_CONTINUE;
+            });
         } catch (e) {
             global.logError('[SnapLayouts] Error applying geometry: ' + e);
         }
@@ -622,7 +784,8 @@ class SnapLayoutsExtension {
                         x: Math.round(workArea.x + z.x * workArea.width),
                         y: Math.round(workArea.y + z.y * workArea.height),
                         width: Math.round(workArea.width * z.w),
-                        height: Math.round(workArea.height * z.h)
+                        height: Math.round(workArea.height * z.h),
+                        zone: z
                     };
                     this._destroyGhostPreview();
                     this._destroyFlyout();
@@ -636,7 +799,8 @@ class SnapLayoutsExtension {
                             x: Math.round(workArea.x + z.x * workArea.width),
                             y: Math.round(workArea.y + z.y * workArea.height),
                             width: Math.round(workArea.width * z.w),
-                            height: Math.round(workArea.height * z.h)
+                            height: Math.round(workArea.height * z.h),
+                            zone: z
                         };
                         this._showGhostPreview(targetRect);
                     } else {
@@ -692,7 +856,8 @@ class SnapLayoutsExtension {
                             x: Math.round(workArea.x + z.x * workArea.width),
                             y: Math.round(workArea.y + z.y * workArea.height),
                             width: Math.round(workArea.width * z.w),
-                            height: Math.round(workArea.height * z.h)
+                            height: Math.round(workArea.height * z.h),
+                            zone: z
                         };
                         this._destroyGhostPreview();
                         this._destroyFlyout();

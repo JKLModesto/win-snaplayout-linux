@@ -1,15 +1,31 @@
 /* Snap Layouts - Windows 11 Acrylic Style for Cinnamon */
 
+/* Pre-Bar / Top Snap Pill (Subtle hint when dragging) */
+.snap-pre-bar {
+    background-color: rgba(28, 28, 28, 0.90);
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+    border-right: 1px solid rgba(255, 255, 255, 0.18);
+    border-bottom: 2px solid #0078d4;
+    border-top: none;
+    border-radius: 0px 0px 10px 10px;
+    box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.55);
+}
+
+.snap-pre-bar-handle {
+    background-color: rgba(255, 255, 255, 0.45);
+    border-radius: 2px;
+}
+
 /* Top Snap Bar Container (Drops from top edge) */
 .snap-bar-container {
-    background-color: rgba(28, 28, 28, 0.88);
+    background-color: rgba(28, 28, 28, 0.90);
     border-left: 1px solid rgba(255, 255, 255, 0.14);
     border-right: 1px solid rgba(255, 255, 255, 0.14);
     border-bottom: 1px solid rgba(255, 255, 255, 0.14);
     border-top: none;
     border-radius: 0px 0px 14px 14px;
     padding: 10px 16px;
-    box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.55);
+    box-shadow: 0px 12px 32px rgba(0, 0, 0, 0.6);
 }
 
 /* Flyout Container (Triggered by Super+Z) */
